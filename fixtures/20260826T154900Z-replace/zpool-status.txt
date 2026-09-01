@@ -1,0 +1,58 @@
+errors: List of errors unavailable: pool I/O is currently suspended
+errors: List of errors unavailable: pool I/O is currently suspended
+  pool: ci_zfsPool_1A
+ state: SUSPENDED
+status: One or more devices are faulted in response to IO failures.
+action: Make sure the affected devices are connected, then run 'zpool clear'.
+   see: https://openzfs.github.io/openzfs-docs/msg/ZFS-8000-HC
+  scan: scrub repaired 0B in 00:00:10 with 0 errors on Sun Aug  9 03:00:11 2026
+config:
+
+	NAME                        STATE     READ WRITE CKSUM
+	ci_zfsPool_1A               ONLINE       0     0     0
+	  raidz1-0                  ONLINE       0     2     0
+	    scsi-300000000000004f6  ONLINE       0     5     0
+	    scsi-300000000000004f7  ONLINE       0     5     0
+	    scsi-300000000000004f8  ONLINE       0     5     0
+
+
+  pool: td
+ state: SUSPENDED
+status: One or more devices are faulted in response to IO failures.
+action: Make sure the affected devices are connected, then run 'zpool clear'.
+   see: https://openzfs.github.io/openzfs-docs/msg/ZFS-8000-HC
+config:
+
+	NAME                        STATE     READ WRITE CKSUM
+	td                          ONLINE       0     0     0
+	  mirror-0                  ONLINE       0    16     0
+	    wwn-0x00000000000004f9  ONLINE       0    19     0
+	    wwn-0x00000000000004fa  ONLINE       0    23     0
+
+
+  pool: zr11
+ state: ONLINE
+  scan: resilvered 64.2M in 00:00:01 with 0 errors on Thu Aug 27 00:48:59 2026
+config:
+
+	NAME                                      STATE     READ WRITE CKSUM
+	zr11                                      ONLINE       0     0     0
+	  raidz1-0                                ONLINE       0     0     0
+	    /var/tmp/zresmon-lab/zr11-spare1.img  ONLINE       0     0     0
+	    /var/tmp/zresmon-lab/zr11-v2.img      ONLINE       0     0     0
+	    /var/tmp/zresmon-lab/zr11-v3.img      ONLINE       0     0     0
+
+errors: No known data errors
+
+  pool: zrm0
+ state: ONLINE
+  scan: resilvered 129M in 00:00:01 with 0 errors on Thu Aug 27 00:48:57 2026
+config:
+
+	NAME                                      STATE     READ WRITE CKSUM
+	zrm0                                      ONLINE       0     0     0
+	  mirror-0                                ONLINE       0     0     0
+	    /var/tmp/zresmon-lab/zrm0-spare1.img  ONLINE       0     0     0
+	    /var/tmp/zresmon-lab/zrm0-v2.img      ONLINE       0     0     0
+
+errors: No known data errors

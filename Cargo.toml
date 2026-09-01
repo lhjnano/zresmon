@@ -1,0 +1,43 @@
+[package]
+name = "zresmon"
+version = "0.1.0"
+edition = "2021"
+description = "Lock-free ZFS resilver/scrub monitor TUI — resource-agent style stateless observation"
+license = "MIT OR Apache-2.0"
+authors = ["HeonJe LEE <lhjnano@gmail.com>"]
+keywords = ["tui", "ratatui", "zfs", "resilver"]
+categories = ["command-line-utilities", "system"]
+
+[dependencies]
+# TUI rendering primitives — pinned to match ratatui-ppalla 0.0.3's requirements
+# (ppalla 0.0.3 requires ratatui ^0.29 and crossterm ^0.28; pinning the exact
+# majors avoids two-ratatui type conflicts if a future dep pulls a newer major).
+ratatui = "0.29"
+crossterm = "0.28"
+
+# ppalla primitives (Lipgloss-style StyleBuilder, Prepared* widgets, elm
+# runtime). crates.io release 0.0.3 on purpose — same as orcatui. The local
+# ~/source/project/ratatui-ppalla workspace sits at 0.0.4 with in-flight API
+# churn and is NOT used here: all code must compile against the published
+# 0.0.3 surface only.
+ratatui-ppalla = "0.0.3"
+
+# CLI argument parsing (derive API)
+clap = { version = "4", features = ["derive"] }
+
+# Error handling: anyhow for the binary's fallible paths, thiserror for typed
+# errors surfaced from collectors/model code.
+anyhow = "1"
+thiserror = "1"
+
+# Fixture serialization (--demo scenario sources) and --json snapshot output.
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+
+# Optimize the release binary for the poll/render budget: full LTO + a single
+# codegen unit squeezes every cycle out of the hot paths, and `strip` shrinks
+# the resulting binary substantially.
+[profile.release]
+lto = true
+codegen-units = 1
+strip = true

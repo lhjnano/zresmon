@@ -1,0 +1,164 @@
+name: ci
+
+# Always render cargo output in color in the CI logs.
+env:
+  CARGO_TERM_COLOR: always
+
+on:
+  push:
+    branches: [main, master]
+  pull_request:
+
+# Cancel a superseded run when a newer push lands on the same branch.
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  check:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install Rust toolchain
+        uses: dtolnay/rust-toolchain@stable
+        with:
+          components: rustfmt,clippy
+
+      - name: Cache cargo build
+        uses: Swatinem/rust-cache@v2
+
+      - name: Check formatting
+        run: cargo fmt --all -- --check
+
+      # Evolving public API legitimately triggers dead_code warnings on
+      # not-yet-wired items. Do NOT use `-D warnings` here.
+      - name: Clippy (allow dead_code)
+        run: cargo clippy --all-targets -- -W clippy::all
+
+      - name: Run tests
+        run: cargo test --all
+
+      - name: Check release build
+        run: cargo build --release
+
+      # ZFS userspace smoke: the runner image does NOT ship ZFS — install it
+      # and prove the binary runs in a ZFS-capable environment. (The kernel
+      # module is not available on hosted runners, so real pool operations
+      # are covered by the lab nodes instead — see docs/CONSTRAINTS.md.)
+      - name: ZFS userspace smoke
+        run: |
+          sudo apt-get update -qq
+          sudo apt-get install -y zfsutils-linux
+          zpool version || true
+          ./target/release/zresmon --version
+
+  scripts:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Syntax-check shell scripts
+        run: |
+          for f in scripts/*.sh; do
+            bash -n "$f" || { echo "SYNTAX FAIL: $f"; exit 1; }
+          done
+          echo "All scripts pass syntax check"
+
+  musl:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install Rust toolchain
+        uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: x86_64-unknown-linux-musl
+
+      - name: Cache cargo build
+        uses: Swatinem/rust-cache@v2
+
+      # The static musl binary runs on any Linux (Rocky 8, CentOS, etc.)
+      # regardless of host glibc — this is the distributable artifact.
+      - name: Build static musl binary
+        run: |
+          cargo build --release --target x86_64-unknown-linux-musl
+          file target/x86_64-unknown-linux-musl/release/zresmon
+          ./target/x86_64-unknown-linux-musl/release/zresmon --version
+
+      - name: Upload artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: zresmon-musl
+          path: target/x86_64-unknown-linux-musl/release/zresmon
+          retention-days: 30
+
+  # Portability canaries: zresmon's collection layer is Linux-specific
+  # (/proc/spl kstat paths), but the library, parser and UI logic are pure
+  # and must compile + pass headless unit tests everywhere OpenZFS runs.
+  # Full integration matrix: boot each distro's cloud image as a QEMU VM
+  # on the runner, build OpenZFS 2.4.1 from source INSIDE the VM (its own
+  # kernel — no runner-kernel version limits), and run the complete lab
+  # matrix (17 cases) against real file-vdev pools. This covers every
+  # supported distro with a matched userspace/kernel ZFS pair.
+  # (FreeBSD is not included: zresmon's collection layer is Linux-only
+  # — /proc/spl kstat — so a FreeBSD full test is not meaningful.)
+  qemu-full:
+    name: qemu-full (${{ matrix.os }})
+    runs-on: ubuntu-latest
+    timeout-minutes: 90
+    strategy:
+      fail-fast: false
+      matrix:
+        os:
+          - almalinux8
+          - almalinux9
+          - almalinux10
+          - centos-stream9
+          - centos-stream10
+          - debian12
+          - debian13
+          - fedora43
+          - fedora44
+          - ubuntu22
+          - ubuntu24
+          # ubuntu26 (resolute): cloud image ships kernel 7.0; OpenZFS 2.4.1
+          # supports up to 6.19 — module build fails. Re-add when ZFS >2.4.1
+          # or an older kernel variant is available.
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install QEMU and cloud-image tools
+        run: |
+          sudo apt-get update -qq
+          sudo apt-get install -y qemu-kvm qemu-utils cloud-image-utils sshpass
+
+      - name: Generate SSH key
+        run: |
+          rm -f ~/.ssh/id_ed25519 ~/.ssh/id_ed25519.pub
+          ssh-keygen -t ed25519 -f ~/.ssh/id_ed25519 -q -N ""
+
+      - name: Boot VM and wait for SSH
+        timeout-minutes: 20
+        run: ./scripts/ci/qemu-boot.sh "${{ matrix.os }}"
+
+      - name: Run full test payload in VM
+        timeout-minutes: 60
+        run: |
+          case "${{ matrix.os }}" in
+            ubuntu*)   VMUSER=ubuntu;;
+            debian*)   VMUSER=debian;;
+            almalinux*) VMUSER=almalinux;;
+            centos*)   VMUSER=cloud-user;;
+            fedora*)   VMUSER=fedora;;
+          esac
+          scp -o StrictHostKeyChecking=no -P 2222 \
+            scripts/ci/vm-payload.sh "$VMUSER@localhost:/tmp/"
+          ssh -o StrictHostKeyChecking=no -p 2222 "$VMUSER@localhost" \
+            "bash /tmp/vm-payload.sh"
+
+      - name: Shutdown VM
+        if: always()
+        run: |
+          sudo kill "$(sudo cat /tmp/vm.pid)" 2>/dev/null || true
